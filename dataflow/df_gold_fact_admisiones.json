@@ -43,8 +43,32 @@
 					"name": "dimfecha"
 				}
 			],
-			"sinks": [],
-			"transformations": [],
+			"sinks": [
+				{
+					"dataset": {
+						"referenceName": "gold_fact_admisiones",
+						"type": "DatasetReference"
+					},
+					"name": "sink1"
+				}
+			],
+			"transformations": [
+				{
+					"name": "lookup1"
+				},
+				{
+					"name": "lookup2"
+				},
+				{
+					"name": "lookup3"
+				},
+				{
+					"name": "lookup4"
+				},
+				{
+					"name": "select1"
+				}
+			],
 			"scriptLines": [
 				"source(output(",
 				"          admission_id_bk as integer,",
@@ -54,6 +78,7 @@
 				"          severity as string,",
 				"          admission_date as date,",
 				"          discharge_date as date,",
+				"          fecha_alta_key as integer,",
 				"          medico_id as integer,",
 				"          dias_estancia as integer,",
 				"          conteo_admisiones as integer",
@@ -61,7 +86,7 @@
 				"     allowSchemaDrift: true,",
 				"     validateSchema: false,",
 				"     isolationLevel: 'READ_UNCOMMITTED',",
-				"     query: 'SELECT\\n    a.admission_id AS admission_id_bk,\\n    a.patient_id,\\n    a.department,\\n    d.icd_code,\\n    ISNULL(d.severity, \\'Unspecified\\') AS severity,\\n    a.admission_date,\\n    a.discharge_date,\\n    a.attending_doctor_id AS medico_id,\\n    DATEDIFF(DAY, a.admission_date, a.discharge_date) AS dias_estancia,\\n    1 AS conteo_admisiones\\nFROM silver.admissions a\\nINNER JOIN silver.diagnoses d ON a.admission_id = d.admission_id',",
+				"     query: 'SELECT\\n    a.admission_id AS admission_id_bk,\\n    a.patient_id,\\n    a.department,\\n    d.icd_code,\\n    ISNULL(d.severity, \\'Unspecified\\') AS severity,\\n    a.admission_date,\\n    a.discharge_date,\\n    CASE \\n        WHEN a.discharge_date IS NULL THEN NULL \\n        ELSE YEAR(a.discharge_date) * 10000 + MONTH(a.discharge_date) * 100 + DAY(a.discharge_date) \\n    END AS fecha_alta_key,\\n    a.attending_doctor_id AS medico_id,\\n    DATEDIFF(DAY, a.admission_date, a.discharge_date) AS dias_estancia,\\n    1 AS conteo_admisiones\\nFROM silver.admissions a\\nINNER JOIN silver.diagnoses d ON a.admission_id = d.admission_id',",
 				"     format: 'query') ~> source1",
 				"source(output(",
 				"          paciente_key as integer,",
@@ -114,7 +139,70 @@
 				"     allowSchemaDrift: true,",
 				"     validateSchema: false,",
 				"     isolationLevel: 'READ_UNCOMMITTED',",
-				"     format: 'table') ~> dimfecha"
+				"     format: 'table') ~> dimfecha",
+				"source1, dimpaciente lookup(patient_id == patient_id_bk,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> lookup1",
+				"lookup1, dimdepartamento lookup(department == nombre_departamento,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> lookup2",
+				"lookup2, dimdiagnostico lookup(icd_code == codigo_icd",
+				"     && severity == nivel_severidad,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> lookup3",
+				"lookup3, dimfecha lookup(admission_date == fecha_completa,",
+				"     multiple: false,",
+				"     pickup: 'any',",
+				"     broadcast: 'auto')~> lookup4",
+				"lookup4 select(mapColumn(",
+				"          admission_id_bk,",
+				"          fecha_alta_key,",
+				"          medico_id,",
+				"          dias_estancia,",
+				"          conteo_admisiones,",
+				"          paciente_key,",
+				"          departamento_key,",
+				"          diagnostico_key,",
+				"          fecha_key",
+				"     ),",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true) ~> select1",
+				"select1 sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          admision_key as long,",
+				"          admission_id_bk as integer,",
+				"          paciente_key as integer,",
+				"          departamento_key as integer,",
+				"          diagnostico_key as integer,",
+				"          fecha_ingreso_key as integer,",
+				"          fecha_alta_key as integer,",
+				"          medico_id as integer,",
+				"          dias_estancia as integer,",
+				"          conteo_admisiones as integer",
+				"     ),",
+				"     deletable:false,",
+				"     insertable:true,",
+				"     updateable:false,",
+				"     upsertable:false,",
+				"     format: 'table',",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError',",
+				"     mapColumn(",
+				"          admission_id_bk,",
+				"          paciente_key,",
+				"          departamento_key,",
+				"          diagnostico_key,",
+				"          fecha_ingreso_key = fecha_key,",
+				"          fecha_alta_key,",
+				"          medico_id,",
+				"          dias_estancia,",
+				"          conteo_admisiones",
+				"     )) ~> sink1"
 			]
 		}
 	}
