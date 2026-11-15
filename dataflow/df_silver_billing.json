@@ -13,6 +13,13 @@
 						"type": "DatasetReference"
 					},
 					"name": "source1"
+				},
+				{
+					"dataset": {
+						"referenceName": "dw_silver_admissions_sql",
+						"type": "DatasetReference"
+					},
+					"name": "source2"
 				}
 			],
 			"sinks": [
@@ -30,6 +37,9 @@
 				},
 				{
 					"name": "filter1"
+				},
+				{
+					"name": "exists1"
 				}
 			],
 			"scriptLines": [
@@ -45,6 +55,18 @@
 				"     validateSchema: false,",
 				"     isolationLevel: 'READ_UNCOMMITTED',",
 				"     format: 'table') ~> source1",
+				"source(output(",
+				"          admission_id as integer,",
+				"          patient_id as integer,",
+				"          admission_date as date,",
+				"          discharge_date as date,",
+				"          department as string,",
+				"          attending_doctor_id as integer",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     isolationLevel: 'READ_UNCOMMITTED',",
+				"     format: 'table') ~> source2",
 				"source1 derive(billing_id = toInteger(trim(billing_id)),",
 				"          admission_id = toInteger(trim(admission_id)),",
 				"          charge_type = iif(isNull(charge_type) || trim(charge_type) == '', 'Unspecified', trim(charge_type)),",
@@ -55,7 +77,10 @@
 				"          payment_status = case(   upper(trim(payment_status)) == 'PAID', 'Paid',   upper(trim(payment_status)) == 'UNPAID', 'Unpaid',   upper(trim(payment_status)) == 'PENDING', 'Pending',   upper(trim(payment_status)) == 'OVERDUE', 'Overdue',   'Pending' ),",
 				"          payment_date = iif(   upper(trim(payment_status)) != 'PAID',   toDate(null()),   coalesce(     toDate(trim(payment_date), 'yyyy-MM-dd'),     toDate(trim(payment_date), 'MM/dd/yyyy'),     toDate(trim(payment_date), 'MM-dd-yy'),     toDate(trim(payment_date), 'dd-MMM-yyyy'),     toDate(trim(payment_date), 'MMMM dd, yyyy')   ) )) ~> derivedColumn1",
 				"derivedColumn1 filter(!isNull(billing_id) && !isNull(admission_id) && !isNull(charge_type) && !isNull(amount) && amount > 0 && !isNull(payment_status)) ~> filter1",
-				"filter1 sink(allowSchemaDrift: true,",
+				"filter1, source2 exists(derivedColumn1@admission_id == source2@admission_id,",
+				"     negate:false,",
+				"     broadcast: 'auto')~> exists1",
+				"exists1 sink(allowSchemaDrift: true,",
 				"     validateSchema: false,",
 				"     input(",
 				"          billing_id as integer,",
