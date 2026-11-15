@@ -6,11 +6,78 @@
 		},
 		"type": "MappingDataFlow",
 		"typeProperties": {
-			"sources": [],
-			"sinks": [],
-			"transformations": [],
+			"sources": [
+				{
+					"dataset": {
+						"referenceName": "dw_bronze_diagnoses_sql",
+						"type": "DatasetReference"
+					},
+					"name": "source1"
+				}
+			],
+			"sinks": [
+				{
+					"dataset": {
+						"referenceName": "dw_silver_diagnoses_sql",
+						"type": "DatasetReference"
+					},
+					"name": "sink1"
+				}
+			],
+			"transformations": [
+				{
+					"name": "derivedColumn1"
+				},
+				{
+					"name": "derivedColumn2"
+				},
+				{
+					"name": "filter1"
+				}
+			],
 			"scriptLines": [
-				""
+				"source(output(",
+				"          diagnosis_id as string,",
+				"          admission_id as string,",
+				"          icd_code as string,",
+				"          diagnosis_description as string,",
+				"          severity as string",
+				"     ),",
+				"     allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     isolationLevel: 'READ_UNCOMMITTED',",
+				"     format: 'table') ~> source1",
+				"source1 derive(diagnosis_id = toInteger(trim(diagnosis_id)),",
+				"          admission_id = toInteger(trim(admission_id)),",
+				"          icd_code = replace(upper(trim(split(icd_code, ',')[1])), '-', '.'),",
+				"          diagnosis_description = trim(diagnosis_description),",
+				"          severity = case(   isNull(severity) || trim(severity) == '', 'Unspecified',   upper(trim(severity)) == 'CRITICAL', 'Critical',   upper(trim(severity)) == 'SEVERE', 'Severe',   upper(trim(severity)) == 'MODERATE', 'Moderate',   upper(trim(severity)) == 'MILD', 'Mild',   'Unspecified' )) ~> derivedColumn1",
+				"derivedColumn1 derive(icd_code = case(   icd_code == 'M545', 'M54.5',   icd_code == 'E119', 'E11.9',   icd_code == 'K219', 'K21.9',   icd_code == 'N390', 'N39.0',   icd_code == 'F329', 'F32.9',   icd_code == 'J45909', 'J45.909',   icd_code == 'C50911', 'C50.911',   icd_code == 'S72001A', 'S72.001A',   icd_code )) ~> derivedColumn2",
+				"derivedColumn2 filter(!isNull(diagnosis_id) && !isNull(admission_id) && !isNull(icd_code) && icd_code != '') ~> filter1",
+				"filter1 sink(allowSchemaDrift: true,",
+				"     validateSchema: false,",
+				"     input(",
+				"          diagnosis_id as integer,",
+				"          admission_id as integer,",
+				"          icd_code as string,",
+				"          diagnosis_description as string,",
+				"          severity as string",
+				"     ),",
+				"     deletable:false,",
+				"     insertable:true,",
+				"     updateable:false,",
+				"     upsertable:false,",
+				"     format: 'table',",
+				"     skipDuplicateMapInputs: true,",
+				"     skipDuplicateMapOutputs: true,",
+				"     errorHandlingOption: 'stopOnFirstError',",
+				"     mapColumn(",
+				"          diagnosis_id,",
+				"          admission_id,",
+				"          icd_code,",
+				"          diagnosis_description,",
+				"          severity",
+				"     )) ~> sink1"
 			]
 		}
 	}
